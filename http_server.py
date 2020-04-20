@@ -1,6 +1,12 @@
 import socket
 import sys
 import traceback
+import mimetypes
+import os
+import logging
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 def response_ok(body=b"This is a minimal response", mimetype=b"text/plain"):
     """
@@ -18,22 +24,37 @@ def response_ok(body=b"This is a minimal response", mimetype=b"text/plain"):
         <html><h1>Welcome:</h1></html>\r\n
         '''
     """
-
     # TODO: Implement response_ok
-    return b""
+    response_string = b"HTTP/1.1 200 OK\r\n" \
+                      b"Content-Type: " + mimetype + b"\r\n" \
+                      b"\r\n" \
+                      + body
+
+    logger.debug(response_string)
+    return response_string
 
 def response_method_not_allowed():
     """Returns a 405 Method Not Allowed response"""
 
     # TODO: Implement response_method_not_allowed
-    return b""
+    response_string = b"HTTP/1.1 405 Method Not Allowed\r\n" \
+                      b"Content-Type: text/html\r\n" \
+                      b"\r\n" \
+                      b"<html><h1>Method not allowed</h1></html>\r\n"
+
+    return response_string
 
 
 def response_not_found():
     """Returns a 404 Not Found response"""
 
     # TODO: Implement response_not_found
-    return b""
+    response_string = b"HTTP/1.1 404 Not Found\r\n" \
+                      b"Content-Type: text/html\r\n" \
+                      b"\r\n" \
+                      b"<html><body><h2>404 Not Found</h2>File was not found</body></html>\r\n"
+
+    return response_string
 
 
 def parse_request(request):
@@ -45,7 +66,14 @@ def parse_request(request):
     """
 
     # TODO: implement parse_request
-    return ""
+    request_method = request.split(" ")[0]
+
+    if request_method != 'GET':
+        raise NotImplementedError
+
+    request_path = request.split(" ")[1]
+
+    return request_path
 
 def response_path(path):
     """
@@ -78,6 +106,16 @@ def response_path(path):
     # TODO: Raise a NameError if the requested content is not present
     # under webroot.
 
+    # Retrieve abs path of directory or file path
+    webroot_directory = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'webroot')
+
+    # Path[1:] will remove the initial "/"
+    full_path = os.path.join(webroot_directory, path[1:])
+
+    # Verify if file or directory exists
+    if not os.path.exists(full_path):
+        raise NameError
+
     # TODO: Fill in the appropriate content and mime_type give the path.
     # See the assignment guidelines for help on "mapping mime-types", though
     # you might need to create a special case for handling make_time.py
@@ -85,11 +123,39 @@ def response_path(path):
     # If the path is "make_time.py", then you may OPTIONALLY return the
     # result of executing `make_time.py`. But you need only return the
     # CONTENTS of `make_time.py`.
-    
-    content = b"not implemented"
-    mime_type = b"not implemented"
 
-    return content, mime_type
+    mime_type = mimetypes.guess_type(path)[0]
+    logger.debug(f"mimetype: {mime_type}")
+
+
+    # Checking if path is a file or directory,
+    # sets mimetype 'text/plain if directory
+    if os.path.isfile(full_path):
+        logger.debug("IS FILE")
+
+        with open(full_path, 'rb') as f:
+            content = f.read()
+    if os.path.isdir(full_path):
+        logger.debug("IS DIRECTORY")
+        mime_type = 'text/plain'
+        # Convert list to string without brackets
+        # Insert the path at the beginning of content list
+        content_list = os.listdir(full_path)
+        content_list.insert(0, path[1:])
+
+        logger.debug(content_list)
+
+        content = ""
+        for item in content_list:
+            content += item + ", "
+
+        # Remove extra space and apostrophe
+        content = content[:-2].encode()
+
+    logger.debug(f"CONTENTS: {content}")
+    # content = b"not implemented"
+    # mime_type = b"not implemented"
+    return content, mime_type.encode()
 
 
 def server(log_buffer=sys.stderr):
@@ -118,22 +184,37 @@ def server(log_buffer=sys.stderr):
 
                 print("Request received:\n{}\n\n".format(request))
 
-                # TODO: Use parse_request to retrieve the path from the request.
+                try:
+                    # TODO: Use parse_request to retrieve the path from the request.
+                    request_path = parse_request(request)
 
-                # TODO: Use response_path to retrieve the content and the mimetype,
-                # based on the request path.
+                    # TODO: Use response_path to retrieve the content and the mimetype,
+                    # based on the request path.
+                    content, mime_type = response_path(request_path)
 
-                # TODO; If parse_request raised a NotImplementedError, then let
-                # response be a method_not_allowed response. If response_path raised
-                # a NameError, then let response be a not_found response. Else,
-                # use the content and mimetype from response_path to build a 
-                # response_ok.
-                response = response_ok(
-                    body=b"Welcome to my web server",
-                    mimetype=b"text/plain"
-                )
+                    # TODO; If parse_request raised a NotImplementedError, then let
+                    # response be a method_not_allowed response. If response_path raised
+                    # a NameError, then let response be a not_found response. Else,
+                    # use the content and mimetype from response_path to build a
+                    # response_ok.
 
-                conn.sendall(response)
+                    # response = response_ok(
+                    #     body=b"Welcome to my web server",
+                    #     mimetype=b"text/plain"
+                    # )
+
+                    response = response_ok(content, mime_type)
+
+                except NotImplementedError:
+                    logger.debug("NOT IMPLIMENTED")
+                    response = response_method_not_allowed()
+
+                except NameError:
+                    logger.debug("NAME ERROR")
+                    response = response_not_found()
+                finally:
+                    conn.sendall(response)
+
             except:
                 traceback.print_exc()
             finally:
